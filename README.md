@@ -1,30 +1,6 @@
 # TerminalWriter
 
-TerminalWriter is a self-contained, terminal-only Python aIn the writIn the writing interface, you can:
-
-- Type text directly, with support for Markdown formatting
-- Press Enter to create line breaks that are preserved in exports
-- Use special commands:
-
-  - `goto <number>` - Edit a specific line by its line number
-  - `new line` - Add a blank line to your text
-  - `new page` - Create a new page
-  - `previous page` - Go back to the previous page
-  - `update font = <name>` - Change the font (e.g., `update font = Helvetica`)
-  - `update font-size = <size>` - Change the font size (e.g., `update font-size = 14`)
-  - `update book-dimensions = <widthxheight>` - Change book dimensions (e.g., `update book-dimensions = 6x9`)
-  - `exit` - Return to main menuace, you can:
-
-- Type text directly, with support for Markdown formatting
-- Use special commands:
-  - `goto <number>` - Edit a specific line by its line number
-  - `new line` - Add a blank line to your text
-  - `new page` - Create a new page
-  - `previous page` - Go back to the previous page
-  - `update font = <n>` - Change the font (e.g., `update font = Helvetica`)
-  - `update font-size = <size>` - Change the font size (e.g., `update font-size = 14`)
-  - `update book-dimensions = <widthxheight>` - Change book dimensions (e.g., `update book-dimensions = 6x9`)
-  - `exit` - Return to main menu for authoring, managing, and exporting digital books. It provides a dedicated writing environment within your terminal, entirely independent from external APIs or programs.
+TerminalWriter is a self-contained, terminal-only Python application for authoring, managing, and exporting digital books. It provides a dedicated writing environment within your terminal, entirely independent from external APIs or programs.
 
 ## Features
 
@@ -106,6 +82,7 @@ In the writing interface, you can:
 - Use special commands:
   - `new page` - Create a new page
   - `previous page` - Go back to the previous page
+  - `goto <line number>` - Go to a specific line to edit it
   - `update font = <name>` - Change the font (e.g., `update font = Helvetica`)
   - `update font-size = <size>` - Change the font size (e.g., `update font-size = 14`)
   - `update book-dimensions = <widthxheight>` - Change book dimensions (e.g., `update book-dimensions = 6x9`)
