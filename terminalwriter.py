@@ -7,9 +7,10 @@ import json
 import sys
 import time
 import re
+import threading
 from colorama import init, Fore, Back, Style
 import markdown
-import tempfile
+import pyautogui
 
 # Initialize colorama for cross-platform colored terminal output
 init()
@@ -189,6 +190,11 @@ def writing_interface(book_slug):
         return
     
     current_page = book_data["current_page"]
+    # New variables for line editing functionality
+    current_content_lines = []
+    current_line_index = -1
+    editing_mode = False
+    was_edit_operation = False
     
     while True:
         clear_screen()
@@ -201,26 +207,78 @@ def writing_interface(book_slug):
               f"Dimensions: {book_data['settings']['book-dimensions']}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}Commands:")
         print(f"  Writing: type your text and press Enter to add it to the current page")
+        print(f"  Line Editing: goto <number> (edit specific line), new line (add blank line)")
         print(f"  Navigation: new page, previous page, next page, go to page = <number>")
         print(f"  Formatting: update font = <name>, update font-size = <size>, update book-dimensions = <widthxheight>")
-        print(f"  Content: clear page, search = <text>, replace = <old>:<new>")
+        print(f"  Content: clear page, search = <text>")
         print(f"  Book: save, rename book, update description")
         print(f"  System: help, status, exit{Style.RESET_ALL}")
 
         print("-" * 50)
         
+        # Split content into lines for better display and editing
+        if not current_content_lines:
+            if book_data["pages"][current_page]["content"]:
+                current_content_lines = book_data["pages"][current_page]["content"].split('\n')
+            else:
+                current_content_lines = [""]
+        
         # Display current page content
-        if book_data["pages"][current_page]["content"]:
-            print(book_data["pages"][current_page]["content"])
+        if current_content_lines and any(line.strip() for line in current_content_lines):
+            for i, line in enumerate(current_content_lines):
+                # Highlight the current line being edited
+                if editing_mode and i == current_line_index:
+                    print(f"{Fore.CYAN}{i+1}: {line}{Style.RESET_ALL}")
+                else:
+                    print(f"{i+1}: {line}")
         else:
             print(f"{Fore.YELLOW}This page is empty. Type your content above.{Style.RESET_ALL}")
         
         print("-" * 50)
         
-        # Get user input
-        user_input = input(f"{Fore.CYAN}> {Style.RESET_ALL}")
+        # Reset the edit operation flag at the start of each loop
+        was_edit_operation = False
         
-        # Process commands
+        # Show appropriate prompt based on editing mode
+        if editing_mode:
+            prompt_text = f"{Fore.CYAN}Editing line {current_line_index + 1} > {Style.RESET_ALL}"
+            # Pre-populate with current line content
+            line_content = current_content_lines[current_line_index]
+            
+            # Define function to auto-type the text after a short delay
+            def auto_type_text(text):
+                time.sleep(0.5)  # Wait for input prompt to appear
+                pyautogui.write(text)
+            
+            # Start typing in a separate thread
+            typing_thread = threading.Thread(target=auto_type_text, args=(line_content,))
+            typing_thread.daemon = True
+            typing_thread.start()
+            
+            # Get user input
+            user_input = input(prompt_text)
+            
+            # If user just presses enter (and nothing was auto-typed), keep the current line unchanged
+            if user_input == "":
+                user_input = line_content
+                
+            # Update the line being edited
+            current_content_lines[current_line_index] = user_input
+            editing_mode = False
+            # Update the book content with modified lines
+            book_data["pages"][current_page]["content"] = '\n'.join(current_content_lines)
+            save_book(book_slug, book_data)
+            
+            # Mark that we just performed an edit operation
+            was_edit_operation = True
+        else:
+            # Regular input mode
+            user_input = input(f"{Fore.CYAN}> {Style.RESET_ALL}")
+        
+        # Process commands - but skip command processing if we just edited a line
+        if was_edit_operation:
+            continue
+            
         if user_input.lower() == "exit":
             break
         elif user_input.lower() == "help":
@@ -234,16 +292,27 @@ def writing_interface(book_slug):
             current_page = len(book_data["pages"]) - 1
             book_data["current_page"] = current_page
             save_book(book_slug, book_data)
+            current_content_lines = [""]
+            current_line_index = -1
+            editing_mode = False
         elif user_input.lower() == "previous page":
             if current_page > 0:
                 current_page -= 1
                 book_data["current_page"] = current_page
                 save_book(book_slug, book_data)
+                # Reset line editing state for the new page
+                current_content_lines = book_data["pages"][current_page]["content"].split('\n') if book_data["pages"][current_page]["content"] else [""]
+                current_line_index = -1
+                editing_mode = False
         elif user_input.lower() == "next page":
             if current_page < len(book_data["pages"]) - 1:
                 current_page += 1
                 book_data["current_page"] = current_page
                 save_book(book_slug, book_data)
+                # Reset line editing state for the new page
+                current_content_lines = book_data["pages"][current_page]["content"].split('\n') if book_data["pages"][current_page]["content"] else [""]
+                current_line_index = -1
+                editing_mode = False
             else:
                 print(f"{Fore.YELLOW}You are on the last page. Use 'new page' to add a new page.{Style.RESET_ALL}")
                 time.sleep(1)
@@ -254,17 +323,44 @@ def writing_interface(book_slug):
                     current_page = page_num - 1
                     book_data["current_page"] = current_page
                     save_book(book_slug, book_data)
+                    # Reset line editing state for the new page
+                    current_content_lines = book_data["pages"][current_page]["content"].split('\n') if book_data["pages"][current_page]["content"] else [""]
+                    current_line_index = -1
+                    editing_mode = False
                 else:
                     print(f"{Fore.RED}Invalid page number. Valid range: 1-{len(book_data['pages'])}{Style.RESET_ALL}")
                     time.sleep(1)
             except:
                 print(f"{Fore.RED}Invalid format. Use: go to page = <number>{Style.RESET_ALL}")
                 time.sleep(1)
+        elif user_input.lower().startswith("goto "):
+            # Enter line editing mode for a specific line
+            try:
+                line_num = int(user_input.lower().replace("goto ", "").strip())
+                if current_content_lines and 1 <= line_num <= len(current_content_lines):
+                    current_line_index = line_num - 1
+                    editing_mode = True
+                else:
+                    print(f"{Fore.RED}Invalid line number. Valid range: 1-{len(current_content_lines)}{Style.RESET_ALL}")
+                    time.sleep(1)
+            except ValueError:
+                print(f"{Fore.RED}Invalid format. Use: goto <number>{Style.RESET_ALL}")
+                time.sleep(1)
+        elif user_input.lower() == "new line":
+            # Add a blank line to the content
+            current_content_lines.append("")
+            book_data["pages"][current_page]["content"] = '\n'.join(current_content_lines)
+            save_book(book_slug, book_data)
+            print(f"{Fore.GREEN}Blank line added.{Style.RESET_ALL}")
+            time.sleep(0.5)
         elif user_input.lower() == "clear page":
             confirm = input(f"{Fore.YELLOW}Are you sure you want to clear this page? (yes/no): {Style.RESET_ALL}").lower()
             if confirm == "yes":
                 book_data["pages"][current_page]["content"] = ""
                 save_book(book_slug, book_data)
+                current_content_lines = [""]
+                current_line_index = -1
+                editing_mode = False
                 print(f"{Fore.GREEN}Page cleared.{Style.RESET_ALL}")
                 time.sleep(1)        
         elif user_input.lower().startswith("search ="):
@@ -288,35 +384,17 @@ def writing_interface(book_slug):
                         current_page = int(go_to) - 1
                         book_data["current_page"] = current_page
                         save_book(book_slug, book_data)
+                        # Reset line editing state for the new page
+                        current_content_lines = book_data["pages"][current_page]["content"].split('\n') if book_data["pages"][current_page]["content"] else [""]
+                        current_line_index = -1
+                        editing_mode = False
                 else:
                     print(f"{Fore.YELLOW}No matches found for '{search_text}'.{Style.RESET_ALL}")
                     time.sleep(1)
             except:
                 print(f"{Fore.RED}Invalid format. Use: search = <text>{Style.RESET_ALL}")
                 time.sleep(1)
-        elif user_input.lower().startswith("replace ="):
-            try:
-                params = user_input.split("=")[1].strip()
-                old_text, new_text = params.split(":", 1)
-                old_text = old_text.strip()
-                new_text = new_text.strip()
-                
-                content = book_data["pages"][current_page]["content"]
-                if old_text in content:
-                    modified_content, replaced_count = selective_replace(content, old_text, new_text)
-                    book_data["pages"][current_page]["content"] = modified_content
-                    save_book(book_slug, book_data)
-                    if replaced_count > 0:
-                        print(f"{Fore.GREEN}Replaced {replaced_count} occurrence(s) of '{old_text}' with '{new_text}'.{Style.RESET_ALL}")
-                    else:
-                        print(f"{Fore.YELLOW}No occurrences of '{old_text}' found to replace.{Style.RESET_ALL}")
-                else:
-                    print(f"{Fore.YELLOW}Text '{old_text}' not found on this page.{Style.RESET_ALL}")
-                time.sleep(1)
-            except Exception as e:
-                print(f"{Fore.RED}Invalid format. Use: replace = old text : new text{Style.RESET_ALL}")
-                print(f"{Fore.RED}Error: {str(e)}{Style.RESET_ALL}")
-                time.sleep(1)
+
         elif user_input.lower() == "save":
             save_book(book_slug, book_data)
             print(f"{Fore.GREEN}Book saved.{Style.RESET_ALL}")
@@ -371,75 +449,34 @@ def writing_interface(book_slug):
                 time.sleep(1)
         else:
             # Add the input as content to the current page
-            if book_data["pages"][current_page]["content"]:
-                book_data["pages"][current_page]["content"] += "\n" + user_input
+            if user_input == "":
+                # Handle empty input as a signal to continue writing rather than adding a blank line
+                print(f"{Fore.YELLOW}To add a blank line, use the 'new line' command.{Style.RESET_ALL}")
+                time.sleep(1)
             else:
-                book_data["pages"][current_page]["content"] = user_input
-            save_book(book_slug, book_data)
+                # If the page is blank (only one empty line), replace that line instead of appending
+                if len(current_content_lines) == 1 and current_content_lines[0] == "":
+                    current_content_lines[0] = user_input
+                else:
+                    # Otherwise append as normal
+                    current_content_lines.append(user_input)
+                
+                # Update the book content
+                book_data["pages"][current_page]["content"] = '\n'.join(current_content_lines)
+                save_book(book_slug, book_data)
 
 
-def selective_replace(content, old_text, new_text):
-    """Find and selectively replace text occurrences
-    
-    Returns:
-        tuple: (modified_content, replaced_count)
-    """
-    # Find all occurrences
-    occurrences = []
-    start_pos = 0
-    while True:
-        pos = content.find(old_text, start_pos)
-        if pos == -1:
-            break
-        
-        # Get some context around the occurrence
-        context_start = max(0, pos - 20)
-        context_end = min(len(content), pos + len(old_text) + 20)
-        context_before = content[context_start:pos]
-        context_after = content[pos + len(old_text):context_end]
-        
-        occurrences.append({
-            "position": pos,
-            "context": f"...{context_before}{Fore.RED}{old_text}{Style.RESET_ALL}{context_after}..."
-        })
-        
-        start_pos = pos + len(old_text)
-    
-    if len(occurrences) > 1:
-        clear_screen()
-        print(f"{Fore.GREEN}Found {len(occurrences)} occurrences of '{old_text}':{Style.RESET_ALL}\n")
-        
-        for i, occurrence in enumerate(occurrences, 1):
-            print(f"{i}. {occurrence['context']}")
-        
-        print(f"A. {Fore.YELLOW}Replace ALL occurrences{Style.RESET_ALL}")
-        print(f"0. {Fore.YELLOW}Cancel{Style.RESET_ALL}")
-        
-        choice = input(f"\n{Fore.CYAN}Which occurrence to replace? (0-{len(occurrences)}, A for all): {Style.RESET_ALL}")
-        
-        if choice.lower() == 'a':
-            # Replace all occurrences
-            return content.replace(old_text, new_text), len(occurrences)
-        elif choice.isdigit() and 1 <= int(choice) <= len(occurrences):
-            # Replace only the selected occurrence
-            occurrence_idx = int(choice) - 1
-            pos = occurrences[occurrence_idx]["position"]
-            
-            new_content = content[:pos] + new_text + content[pos + len(old_text):]
-            return new_content, 1
-        else:
-            return content, 0
-    elif len(occurrences) == 1:
-        # Only one occurrence, just replace it
-        return content.replace(old_text, new_text), 1
-    else:
-        return content, 0
 
 
 def show_help():
     """Show help information for the writing interface"""
     clear_screen()
     print(f"{Fore.GREEN}=== TerminalWriter Help ==={Style.RESET_ALL}")
+    
+    print("\nLine Editing Commands:")
+    print("  goto <number>        - Edit a specific line by its line number")
+    print("  new line             - Insert a blank line in your text")
+    
     print("\nNavigation Commands:")
     print("  new page             - Create a new page and navigate to it")
     print("  previous page        - Go to the previous page")
@@ -454,7 +491,6 @@ def show_help():
     print("\nContent Editing Commands:")
     print("  clear page           - Clear all content from the current page")
     print("  search = <text>      - Search for text across all pages")
-    print("  replace = <old>:<new> - Replace text on the current page")
     
     print("\nBook Management Commands:")
     print("  save                 - Explicitly save the book (auto-saves occur after most actions)")
@@ -474,6 +510,12 @@ def show_help():
     print("  ### Heading 3        - Creates a small heading")
     print("  ![alt text](file:///path/to/image.jpg) - Inserts an image")
     print("  [link text](https://example.com) - Creates a hyperlink")
+    
+    print("\nEditing Tips:")
+    print("  - Use 'new line' to add a blank line to your text")
+    print("  - Use 'goto <number>' to edit a specific line by its number")
+    print("  - Line numbers are displayed for easier navigation")
+    print("  - Pressing Enter during text entry creates a line break that will be preserved in exports")
 
 
 def show_status(book_data):
@@ -558,8 +600,11 @@ def export_to_pdf(book_data, output_path):
             if not page["content"].strip():
                 continue
                 
+            # Ensure newlines are preserved by adding two spaces before each newline for markdown
+            content_with_breaks = re.sub(r'(?m)$', '  ', page["content"])
+            
             # Convert markdown to HTML
-            html = markdown.markdown(page["content"])
+            html = markdown.markdown(content_with_breaks)
             
             # Process image references in markdown
             img_pattern = r'!\[([^\]]*)\]\(file:///([^)]+)\)'
@@ -636,8 +681,11 @@ def export_to_epub(book_data, output_path):
             if not page["content"].strip():
                 continue
                 
+            # Ensure newlines are preserved by adding two spaces before each newline for markdown
+            content_with_breaks = re.sub(r'(?m)$', '  ', page["content"])
+            
             # Convert markdown to HTML
-            html_content = markdown.markdown(page["content"])
+            html_content = markdown.markdown(content_with_breaks)
             
             # Create chapter
             chapter = epub.EpubHtml(title=f'Chapter {i+1}', file_name=f'chapter_{i+1}.xhtml')
