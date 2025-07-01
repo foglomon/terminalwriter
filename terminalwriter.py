@@ -11,12 +11,14 @@ import threading
 from colorama import init, Fore, Back, Style
 import markdown
 import pyautogui
+from bs4 import BeautifulSoup
+import names
 
-# Initialize colorama for cross-platform colored terminal output
+# Initialize colorama for colored terminal output
 init()
 
 # Global variables
-# Use the Documents folder in user profile for storing books and configurations
+# Using the Documents folder in user profile for storing books and configurations
 USER_HOME = os.path.expanduser("~")
 DOCUMENTS_DIR = os.path.join(USER_HOME, "Documents")
 APP_DIR = os.path.join(DOCUMENTS_DIR, "TerminalWriter")
@@ -103,7 +105,8 @@ def create_book():
         "last_modified": time.strftime("%Y-%m-%d %H:%M:%S"),
         "pages": [{"content": ""}],  # Start with one empty page
         "current_page": 0,
-        "settings": DEFAULT_SETTINGS.copy()
+        "settings": DEFAULT_SETTINGS.copy(),
+        "characters": {}  # Dictionary to store character names and descriptions
     }
     
     # Save book metadata
@@ -205,14 +208,7 @@ def writing_interface(book_slug):
         print(f"{Fore.BLUE}Font: {book_data['settings']['font']} | "
               f"Size: {book_data['settings']['font-size']} | "
               f"Dimensions: {book_data['settings']['book-dimensions']}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}Commands:")
-        print(f"  Writing: type your text and press Enter to add it to the current page")
-        print(f"  Line Editing: goto <number> (edit specific line), new line (add blank line)")
-        print(f"  Navigation: new page, previous page, next page, go to page = <number>")
-        print(f"  Formatting: update font = <name>, update font-size = <size>, update book-dimensions = <widthxheight>")
-        print(f"  Content: clear page, search = <text>")
-        print(f"  Book: save, rename book, update description")
-        print(f"  System: help, status, exit{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Type 'help' for more information{Style.RESET_ALL}")
 
         print("-" * 50)
         
@@ -226,11 +222,91 @@ def writing_interface(book_slug):
         # Display current page content
         if current_content_lines and any(line.strip() for line in current_content_lines):
             for i, line in enumerate(current_content_lines):
-                # Highlight the current line being edited
+                # Start with line number display
+                line_display = f"{i+1}: "
+                
+                # If in editing mode and this is the current line, add cyan color
                 if editing_mode and i == current_line_index:
-                    print(f"{Fore.CYAN}{i+1}: {line}{Style.RESET_ALL}")
+                    line_display = f"{Fore.CYAN}{line_display}"
+                
+                # Process different markdown elements with colors:
+                # Process character tags first (replace <tag> with character name)
+                processed_line = line
+                if "characters" in book_data and book_data["characters"]:
+                    processed_line = process_character_tags(processed_line, book_data["characters"])
+                    
+                # 1. Check for headings first (# Heading)
+                if re.match(r'^#+\s+', processed_line):
+                    heading_level = len(re.match(r'^#+', processed_line).group())
+                    heading_text = re.sub(r'^#+\s+', '', processed_line)
+                    
+                    # All headings in blue with BRIGHT style
+                    line_display += f"{Fore.BLUE + Style.BRIGHT}{heading_text}{Style.RESET_ALL}"
+                    if editing_mode and i == current_line_index:
+                        line_display += f"{Fore.CYAN}"
                 else:
-                    print(f"{i+1}: {line}")
+                    # Process bold (**text**), italic (*text*), and font-size tags
+                    current_pos = 0
+                    result_line = ""
+                    
+                    # Handle bold text with asterisks (*bold*)
+                    bold_pattern = re.compile(r'\*([^*]+?)\*')
+                    # Handle italic text with underscores (_italic_)
+                    italic_pattern = re.compile(r'\_([^_]+?)\_')
+                    # Handle font size tags
+                    font_size_pattern = re.compile(r'!font-size\((\d+)\)\[(.*?)\]')
+                        
+                    # Process the line character by character to handle overlapping tags
+                    while current_pos < len(processed_line):
+                        # Check for bold
+                        bold_match = bold_pattern.search(processed_line, current_pos)
+                        # Check for italic
+                        italic_match = italic_pattern.search(processed_line, current_pos)
+                        # Check for font size
+                        font_match = font_size_pattern.search(processed_line, current_pos)
+                        
+                        # Find the earliest match
+                        matches = [m for m in [bold_match, italic_match, font_match] if m]
+                        if not matches:
+                            # No more matches, add the rest of the text
+                            result_line += processed_line[current_pos:]
+                            break
+                            
+                        earliest_match = min(matches, key=lambda m: m.start())
+                        
+                        # Add text before the match
+                        result_line += processed_line[current_pos:earliest_match.start()]
+                        
+                        if earliest_match == bold_match:
+                            # Display bold text with bold terminal style instead of color
+                            bold_text = earliest_match.group(1)
+                            result_line += f"{Style.BRIGHT}{bold_text}{Style.NORMAL}"
+                            if editing_mode and i == current_line_index:
+                                result_line += f"{Fore.CYAN}"
+                            current_pos = earliest_match.end()
+                        elif earliest_match == italic_match:
+                            # Display italic text with dim style (closest to italic in terminal)
+                            italic_text = earliest_match.group(1)
+                            result_line += f"{Style.DIM}{italic_text}{Style.NORMAL}"
+                            if editing_mode and i == current_line_index:
+                                result_line += f"{Fore.CYAN}"
+                            current_pos = earliest_match.end()
+                        elif earliest_match == font_match:
+                            # Handle font size
+                            size = earliest_match.group(1)
+                            text = earliest_match.group(2)
+                            result_line += f"{Fore.MAGENTA}[size={size}]{text}{Fore.RESET}"
+                            if editing_mode and i == current_line_index:
+                                result_line += f"{Fore.CYAN}"
+                            current_pos = earliest_match.end()
+                    
+                    line_display += result_line
+                
+                # Reset styling at end of line
+                if editing_mode and i == current_line_index:
+                    line_display += f"{Style.RESET_ALL}"
+                
+                print(line_display)
         else:
             print(f"{Fore.YELLOW}This page is empty. Type your content above.{Style.RESET_ALL}")
         
@@ -287,6 +363,10 @@ def writing_interface(book_slug):
         elif user_input.lower() == "status":
             show_status(book_data)
             input("Press Enter to continue...")
+        elif user_input.lower() == "characters":
+            book_data = manage_characters(book_slug, book_data)
+            # Reset line editing state to reflect any changes
+            current_content_lines = []
         elif user_input.lower() == "new page":
             book_data["pages"].append({"content": ""})
             current_page = len(book_data["pages"]) - 1
@@ -333,10 +413,10 @@ def writing_interface(book_slug):
             except:
                 print(f"{Fore.RED}Invalid format. Use: go to page = <number>{Style.RESET_ALL}")
                 time.sleep(1)
-        elif user_input.lower().startswith("goto "):
+        elif user_input.lower().startswith("edit "):
             # Enter line editing mode for a specific line
             try:
-                line_num = int(user_input.lower().replace("goto ", "").strip())
+                line_num = int(user_input.lower().replace("edit ", "").strip())
                 if current_content_lines and 1 <= line_num <= len(current_content_lines):
                     current_line_index = line_num - 1
                     editing_mode = True
@@ -344,15 +424,32 @@ def writing_interface(book_slug):
                     print(f"{Fore.RED}Invalid line number. Valid range: 1-{len(current_content_lines)}{Style.RESET_ALL}")
                     time.sleep(1)
             except ValueError:
-                print(f"{Fore.RED}Invalid format. Use: goto <number>{Style.RESET_ALL}")
+                print(f"{Fore.RED}Invalid format. Use: edit <number>{Style.RESET_ALL}")
                 time.sleep(1)
         elif user_input.lower() == "new line":
             # Add a blank line to the content
             current_content_lines.append("")
             book_data["pages"][current_page]["content"] = '\n'.join(current_content_lines)
             save_book(book_slug, book_data)
-            print(f"{Fore.GREEN}Blank line added.{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}Blank line added at the end.{Style.RESET_ALL}")
             time.sleep(0.5)
+        elif user_input.lower().startswith("add line "):
+            # Add a blank line before the specified line number
+            try:
+                line_num = int(user_input.lower().replace("add line ", "").strip())
+                if current_content_lines and 1 <= line_num <= len(current_content_lines) + 1:
+                    # Insert blank line at the specified position
+                    current_content_lines.insert(line_num - 1, "")
+                    book_data["pages"][current_page]["content"] = '\n'.join(current_content_lines)
+                    save_book(book_slug, book_data)
+                    print(f"{Fore.GREEN}Blank line added before line {line_num}.{Style.RESET_ALL}")
+                    time.sleep(0.5)
+                else:
+                    print(f"{Fore.RED}Invalid line number. Valid range: 1-{len(current_content_lines) + 1}{Style.RESET_ALL}")
+                    time.sleep(1)
+            except ValueError:
+                print(f"{Fore.RED}Invalid format. Use: add line <number>{Style.RESET_ALL}")
+                time.sleep(1)
         elif user_input.lower() == "clear page":
             confirm = input(f"{Fore.YELLOW}Are you sure you want to clear this page? (yes/no): {Style.RESET_ALL}").lower()
             if confirm == "yes":
@@ -362,6 +459,35 @@ def writing_interface(book_slug):
                 current_line_index = -1
                 editing_mode = False
                 print(f"{Fore.GREEN}Page cleared.{Style.RESET_ALL}")
+                time.sleep(1)
+        elif user_input.lower().startswith("delete line "):
+            # Delete the specified line and shift remaining lines up
+            try:
+                line_num = int(user_input.lower().replace("delete line ", "").strip())
+                if current_content_lines and 1 <= line_num <= len(current_content_lines):
+                    # Ask for confirmation before deleting
+                    line_content = current_content_lines[line_num - 1]
+                    display_content = line_content[:50] + "..." if len(line_content) > 50 else line_content
+                    confirm = input(f"{Fore.YELLOW}Delete line {line_num}: '{display_content}'? (yes/no): {Style.RESET_ALL}").lower()
+                    
+                    if confirm == "yes":
+                        # Remove the line
+                        current_content_lines.pop(line_num - 1)
+                        
+                        # If we removed the last line and the document is now empty, add an empty line
+                        if not current_content_lines:
+                            current_content_lines = [""]
+                        
+                        # Update the book content
+                        book_data["pages"][current_page]["content"] = '\n'.join(current_content_lines)
+                        save_book(book_slug, book_data)
+                        print(f"{Fore.GREEN}Line {line_num} deleted.{Style.RESET_ALL}")
+                        time.sleep(0.5)
+                else:
+                    print(f"{Fore.RED}Invalid line number. Valid range: 1-{len(current_content_lines)}{Style.RESET_ALL}")
+                    time.sleep(1)
+            except ValueError:
+                print(f"{Fore.RED}Invalid format. Use: delete line <number>{Style.RESET_ALL}")
                 time.sleep(1)        
         elif user_input.lower().startswith("search ="):
             try:
@@ -474,8 +600,10 @@ def show_help():
     print(f"{Fore.GREEN}=== TerminalWriter Help ==={Style.RESET_ALL}")
     
     print("\nLine Editing Commands:")
-    print("  goto <number>        - Edit a specific line by its line number")
-    print("  new line             - Insert a blank line in your text")
+    print("  edit <number>        - Edit a specific line by its line number")
+    print("  new line             - Insert a blank line at the end of your text")
+    print("  add line <number>    - Insert a blank line before the specified line number")
+    print("  delete line <number> - Delete the specified line and shift remaining lines up")
     
     print("\nNavigation Commands:")
     print("  new page             - Create a new page and navigate to it")
@@ -496,24 +624,27 @@ def show_help():
     print("  save                 - Explicitly save the book (auto-saves occur after most actions)")
     print("  rename book          - Change the title of the book")
     print("  update description   - Change the book description")
+    print("  characters           - Manage characters in your book")
     
     print("\nSystem Commands:")
     print("  help                 - Show this help screen")
     print("  status               - Show book statistics and information")
     print("  exit                 - Return to the main menu")
     
-    print("\nMarkdown Formatting:")
-    print("  **bold text**        - Makes text bold")
-    print("  *italic text*        - Makes text italic")
+    print("\nInline Formatting:")
+    print("  !font-size(24)[text] - Makes specific text appear in size 24 (any size can be used)")
+    print("  *bold text*          - Makes text bold")
+    print("  _italic text_        - Makes text italic")
     print("  # Heading 1          - Creates a large heading")
     print("  ## Heading 2         - Creates a medium heading")
     print("  ### Heading 3        - Creates a small heading")
+    print("  <character>          - Automatically replaced with the character's name")
     print("  ![alt text](file:///path/to/image.jpg) - Inserts an image")
     print("  [link text](https://example.com) - Creates a hyperlink")
     
     print("\nEditing Tips:")
     print("  - Use 'new line' to add a blank line to your text")
-    print("  - Use 'goto <number>' to edit a specific line by its number")
+    print("  - Use 'edit <number>' to edit a specific line by its number")
     print("  - Line numbers are displayed for easier navigation")
     print("  - Pressing Enter during text entry creates a line break that will be preserved in exports")
 
@@ -600,8 +731,26 @@ def export_to_pdf(book_data, output_path):
             if not page["content"].strip():
                 continue
                 
+            # Process font-size tags before markdown conversion
+            content = page["content"]
+            
+            # Process character tags first
+            if "characters" in book_data and book_data["characters"]:
+                content = process_character_tags(content, book_data["characters"])
+            
+            # Process custom font-size tags: !font-size(size)[text]
+            # Replace with HTML spans for size changes
+            pattern = r'!font-size\((\d+)\)\[(.*?)\]'
+            
+            def font_size_replace(match):
+                size = match.group(1)
+                text = match.group(2)
+                return f'<span style="font-size:{size}pt;">{text}</span>'
+            
+            content_with_spans = re.sub(pattern, font_size_replace, content)
+            
             # Ensure newlines are preserved by adding two spaces before each newline for markdown
-            content_with_breaks = re.sub(r'(?m)$', '  ', page["content"])
+            content_with_breaks = re.sub(r'(?m)$', '  ', content_with_spans)
             
             # Convert markdown to HTML
             html = markdown.markdown(content_with_breaks)
@@ -613,8 +762,79 @@ def export_to_pdf(book_data, output_path):
             # Extract plain content for text processing
             plain_content = re.sub(img_pattern, '', page["content"])
             
-            # Create paragraph from HTML
-            story.append(Paragraph(html, normal_style))
+            # Handle font-size spans directly - extract them to create separate paragraphs
+            html_parts = []
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # Convert HTML to a series of plain paragraphs and styled text
+            for element in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+                # Process each paragraph element
+                if element.name.startswith('h'):
+                    # For headings, create a heading paragraph
+                    heading_style = ParagraphStyle(
+                        f'Heading{element.name[1]}',
+                        parent=styles['Heading1'],
+                        fontName=book_data["settings"]["font"],
+                        fontSize=book_data["settings"]["font-size"] + (6 - int(element.name[1])) * 2,
+                        alignment=1  # Center alignment
+                    )
+                    story.append(Paragraph(element.get_text(), heading_style))
+                else:
+                    # Create a simpler version of the paragraph without using complex spans
+                    # We'll just extract the text and reconstruct the paragraph
+                    # This avoids the 'findSpanStyle not implemented' error
+                    simplified_text = ""
+                    
+                    # Process each part of the element to handle font sizes
+                    for content in element.contents:
+                        if isinstance(content, str):
+                            simplified_text += content
+                        elif content.name == 'span' and 'style' in content.attrs:
+                            # For span elements with styles, we'll add the text separately
+                            # with the appropriate font size
+                            style_text = content.attrs['style']
+                            size_match = re.search(r'font-size:(\d+)pt;', style_text)
+                            
+                            if size_match:
+                                # If we have text already, add it first
+                                if simplified_text:
+                                    story.append(Paragraph(simplified_text, normal_style))
+                                    simplified_text = ""
+                                
+                                # Now add the sized text
+                                font_size = int(size_match.group(1))
+                                sized_style = ParagraphStyle(
+                                    f'SizedText_{font_size}',
+                                    parent=normal_style,
+                                    fontSize=font_size
+                                )
+                                story.append(Paragraph(content.get_text(), sized_style))
+                            else:
+                                # Just add the text if we can't extract a size
+                                simplified_text += content.get_text()
+                        elif content.name == 'br':
+                            # Handle line breaks by adding the current text
+                            # and starting a new paragraph
+                            if simplified_text:
+                                story.append(Paragraph(simplified_text, normal_style))
+                                simplified_text = ""
+                        elif content.name == 'em':
+                            # Italic text
+                            simplified_text += content.get_text()  # We'll just keep the text without styling
+                        elif content.name == 'strong':
+                            # Bold text
+                            simplified_text += content.get_text()  # We'll just keep the text without styling
+                        else:
+                            # Other elements
+                            simplified_text += content.get_text()
+                    
+                    # Add any remaining text
+                    if simplified_text:
+                        story.append(Paragraph(simplified_text, normal_style))
+            
+            # If no HTML elements were found, add the original HTML as a fallback
+            if not soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+                story.append(Paragraph(html, normal_style))
             
             # Add images if there are any
             for alt_text, img_path in matches:
@@ -681,14 +901,34 @@ def export_to_epub(book_data, output_path):
             if not page["content"].strip():
                 continue
                 
+            # Process custom font-size tags: !font-size(size)[text]
+            # Replace with HTML spans for size changes
+            content = page["content"]
+            
+            # Process character tags first
+            if "characters" in book_data and book_data["characters"]:
+                content = process_character_tags(content, book_data["characters"])
+                
+            pattern = r'!font-size\((\d+)\)\[(.*?)\]'
+            
+            def font_size_replace(match):
+                size = match.group(1)
+                text = match.group(2)
+                return f'<span style="font-size:{size}pt;">{text}</span>'
+            
+            content_with_spans = re.sub(pattern, font_size_replace, content)
+            
             # Ensure newlines are preserved by adding two spaces before each newline for markdown
-            content_with_breaks = re.sub(r'(?m)$', '  ', page["content"])
+            content_with_breaks = re.sub(r'(?m)$', '  ', content_with_spans)
             
             # Convert markdown to HTML
             html_content = markdown.markdown(content_with_breaks)
             
             # Create chapter
             chapter = epub.EpubHtml(title=f'Chapter {i+1}', file_name=f'chapter_{i+1}.xhtml')
+            
+            # Clean up the HTML using BeautifulSoup to ensure proper formatting
+            soup = BeautifulSoup(html_content, 'html.parser')
             
             # Process image references
             img_pattern = r'!\[([^\]]*)\]\(file:///([^)]+)\)'
@@ -713,6 +953,9 @@ def export_to_epub(book_data, output_path):
                 except Exception as e:
                     placeholder = f'[Image: {alt_text} (could not be loaded: {e})]'
                     html_content += f'<p>{placeholder}</p>'
+                    
+            # Ensure font-size spans are properly styled with CSS classes
+            html_content = html_content.replace('<span style="font-size:', '<span class="size-')
             
             chapter.content = f'''
             <html>
@@ -749,7 +992,7 @@ def export_to_epub(book_data, output_path):
         # Define Table of Contents
         book.toc = toc
         
-        # Add default CSS
+        # Add default CSS with specific font size classes
         style = '''
         body {
             font-family: serif;
@@ -761,6 +1004,29 @@ def export_to_epub(book_data, output_path):
             text-align: center;
             font-weight: bold;
         }
+        em {
+            font-style: italic;
+        }
+        strong {
+            font-weight: bold;
+        }
+        .size-8pt { font-size: 8pt; }
+        .size-10pt { font-size: 10pt; }
+        .size-12pt { font-size: 12pt; }
+        .size-14pt { font-size: 14pt; }
+        .size-16pt { font-size: 16pt; }
+        .size-18pt { font-size: 18pt; }
+        .size-20pt { font-size: 20pt; }
+        .size-21pt { font-size: 21pt; }
+        .size-24pt { font-size: 24pt; }
+        .size-28pt { font-size: 28pt; }
+        .size-32pt { font-size: 32pt; }
+        .size-36pt { font-size: 36pt; }
+        .size-42pt { font-size: 42pt; }
+        .size-48pt { font-size: 48pt; }
+        .size-54pt { font-size: 54pt; }
+        .size-60pt { font-size: 60pt; }
+        .size-72pt { font-size: 72pt; }
         '''
         css = epub.EpubItem(
             uid="style_default",
@@ -801,6 +1067,22 @@ def export_to_text(book_data, output_path):
                 if page["content"].strip():
                     # Handle image references
                     content = page["content"]
+                    
+                    # Process character tags first
+                    if "characters" in book_data and book_data["characters"]:
+                        content = process_character_tags(content, book_data["characters"])
+                    
+                    # Process font size tags - in plain text we'll just include a note
+                    pattern = r'!font-size\((\d+)\)\[(.*?)\]'
+                    
+                    def font_size_replace(match):
+                        size = match.group(1)
+                        text = match.group(2)
+                        return text  # Just keep the text for plain text format
+                    
+                    content = re.sub(pattern, font_size_replace, content)
+                    
+                    # Handle image references
                     img_pattern = r'!\[([^\]]*)\]\(file:///[^)]+\)'
                     content = re.sub(img_pattern, r'[IMAGE: \1]', content)
                     
@@ -920,6 +1202,238 @@ def edit_book():
     book_slug = select_book()
     if book_slug:
         writing_interface(book_slug)
+
+
+def manage_characters(book_slug, book_data):
+    """Interface for managing book characters"""
+    while True:
+        clear_screen()
+        print(f"{Fore.GREEN}=== Character Management: {book_data['title']} ==={Style.RESET_ALL}")
+        print("1. View Characters")
+        print("2. Add Character")
+        print("3. Remove Character")
+        print("4. Generate Character Name")
+        print(f"0. {Fore.YELLOW}Back to Writing Interface{Style.RESET_ALL}")
+        
+        try:
+            choice = int(input(f"{Fore.CYAN}Enter your choice (0-4): {Style.RESET_ALL}"))
+            
+            if choice == 0:
+                break
+            elif choice == 1:
+                view_characters(book_data)
+            elif choice == 2:
+                add_character(book_slug, book_data)
+            elif choice == 3:
+                remove_character(book_slug, book_data)
+            elif choice == 4:
+                generate_character_name(book_slug, book_data)
+            else:
+                print(f"{Fore.RED}Invalid choice. Please try again.{Style.RESET_ALL}")
+                time.sleep(1)
+        except ValueError:
+            print(f"{Fore.RED}Please enter a number.{Style.RESET_ALL}")
+            time.sleep(1)
+    
+    return book_data
+
+
+def view_characters(book_data):
+    """Display all characters in the book"""
+    clear_screen()
+    print(f"{Fore.GREEN}=== Characters in {book_data['title']} ==={Style.RESET_ALL}")
+    
+    if not book_data.get("characters", {}):
+        print(f"{Fore.YELLOW}No characters defined yet. Use 'Add Character' to create some.{Style.RESET_ALL}")
+    else:
+        print("\nTag: Character Name")
+        print("-" * 30)
+        for tag, char_info in book_data["characters"].items():
+            print(f"{Fore.CYAN}{tag}{Style.RESET_ALL}: {char_info['name']}")
+    
+    input("\nPress Enter to continue...")
+
+
+def add_character(book_slug, book_data):
+    """Add a new character to the book"""
+    clear_screen()
+    print(f"{Fore.GREEN}=== Add New Character ==={Style.RESET_ALL}")
+    
+    # Initialize characters dict if it doesn't exist
+    if "characters" not in book_data:
+        book_data["characters"] = {}
+    
+    tag = input(f"{Fore.CYAN}Enter character tag: {Style.RESET_ALL}")
+    if not tag:
+        print(f"{Fore.YELLOW}Character tag cannot be empty. Cancelling...{Style.RESET_ALL}")
+        time.sleep(1)
+        return
+    
+    if tag in book_data["characters"]:
+        confirm = input(f"{Fore.YELLOW}Character <{tag}> already exists. Overwrite? (yes/no): {Style.RESET_ALL}").lower()
+        if confirm != "yes":
+            print("Character creation cancelled.")
+            time.sleep(1)
+            return
+    
+    name = input(f"{Fore.CYAN}Enter character name: {Style.RESET_ALL}")
+    
+    book_data["characters"][tag] = {
+        "name": name
+    }
+    
+    save_book(book_slug, book_data)
+    print(f"{Fore.GREEN}Character <{tag}> added successfully!{Style.RESET_ALL}")
+    time.sleep(1)
+
+
+def remove_character(book_slug, book_data):
+    """Remove a character from the book"""
+    clear_screen()
+    print(f"{Fore.GREEN}=== Remove Character ==={Style.RESET_ALL}")
+    
+    if not book_data.get("characters", {}):
+        print(f"{Fore.YELLOW}No characters defined yet.{Style.RESET_ALL}")
+        time.sleep(1)
+        return
+    
+    print("Available characters:")
+    for i, tag in enumerate(book_data["characters"].keys(), 1):
+        char_name = book_data["characters"][tag]["name"]
+        print(f"{i}. {tag}: {char_name}")
+    
+    print(f"0. {Fore.YELLOW}Cancel{Style.RESET_ALL}")
+    
+    try:
+        choice = int(input(f"{Fore.CYAN}Enter your choice (0-{len(book_data['characters'])}): {Style.RESET_ALL}"))
+        
+        if choice == 0:
+            return
+        
+        if 1 <= choice <= len(book_data["characters"]):
+            tag_to_remove = list(book_data["characters"].keys())[choice - 1]
+            char_name = book_data["characters"][tag_to_remove]["name"]
+            confirm = input(f"{Fore.RED}Are you sure you want to remove {tag_to_remove}: {char_name}? (Yes/No): {Style.RESET_ALL}").lower()
+            
+            if confirm == "yes":
+                del book_data["characters"][tag_to_remove]
+                save_book(book_slug, book_data)
+                print(f"{Fore.GREEN}Character {tag_to_remove}: {char_name} removed successfully!{Style.RESET_ALL}")
+                time.sleep(1)
+            elif confirm == "no":
+                print(f"{Fore.YELLOW}Character removal cancelled.{Style.RESET_ALL}")
+                time.sleep(1)
+            else:
+                print(f"{Fore.RED}Invalid choice. Please try again.{Style.RESET_ALL}")
+                time.sleep(1)
+        else:
+            print(f"{Fore.RED}Invalid choice. Please try again.{Style.RESET_ALL}")
+            time.sleep(1)
+    except ValueError:
+        print(f"{Fore.RED}Please enter a number.{Style.RESET_ALL}")
+        time.sleep(1)
+
+
+def generate_character_name(book_slug, book_data):
+    """Generate a character name using the names package"""
+    clear_screen()
+    print(f"{Fore.GREEN}=== Generate Character Name ==={Style.RESET_ALL}")
+    
+    print("Name generation options:")
+    print("1. Full Name")
+    print("2. First Name Only")
+    print("3. Last Name Only")
+    print(f"0. {Fore.YELLOW}Cancel{Style.RESET_ALL}")
+    
+    try:
+        choice = int(input(f"{Fore.CYAN}Enter your choice (0-3): {Style.RESET_ALL}"))
+        
+        if choice == 0:
+            return
+        
+        if choice in [1, 2]:
+            print("-----------------------------------------------------")
+            print("\nSelect gender:")
+            print("1. Male")
+            print("2. Female")
+            print("3. Random")
+            
+            gender_choice = int(input(f"{Fore.CYAN}Enter your choice (1-3): {Style.RESET_ALL}"))
+            
+            if gender_choice == 1:
+                gender = 'male'
+            elif gender_choice == 2:
+                gender = 'female'
+            else:
+                gender = None
+        
+        # Generate name based on selection
+        generated_name = ""
+        if choice == 1:  # Full name
+            generated_name = names.get_full_name(gender=gender)
+        elif choice == 2:  # First name only
+            generated_name = names.get_first_name(gender=gender)
+        elif choice == 3:  # Last name only
+            generated_name = names.get_last_name()
+        
+        print(f"\n{Fore.GREEN}Generated Name: {Style.BRIGHT}{generated_name}{Style.RESET_ALL}")
+        print("\nWould you like to add this character to your book?")
+        print("1. Yes, add this character")
+        print("2. Generate another name")
+        print(f"0. {Fore.YELLOW}Cancel{Style.RESET_ALL}")
+        
+        add_choice = int(input(f"{Fore.CYAN}Enter your choice (0-2): {Style.RESET_ALL}"))
+        
+        if add_choice == 1:
+            # Initialize characters dict if it doesn't exist
+            if "characters" not in book_data:
+                book_data["characters"] = {}
+            
+            # Ask for a tag for this character
+            tag = input(f"{Fore.CYAN}Enter character tag (used like <tag> in text): {Style.RESET_ALL}")
+            
+            if not tag:
+                print(f"{Fore.YELLOW}Character tag cannot be empty. Cancelling...{Style.RESET_ALL}")
+                time.sleep(1)
+                return
+            
+            if tag in book_data["characters"]:
+                confirm = input(f"{Fore.YELLOW}Character <{tag}> already exists. Overwrite? (yes/no): {Style.RESET_ALL}").lower()
+                if confirm != "yes":
+                    print("Character addition cancelled.")
+                    time.sleep(1)
+                    return
+            
+            # Add the character
+            book_data["characters"][tag] = {
+                "name": generated_name
+            }
+            
+            save_book(book_slug, book_data)
+            print(f"{Fore.GREEN}Character <{tag}> added with name '{generated_name}'!{Style.RESET_ALL}")
+            time.sleep(1)
+        elif add_choice == 2:
+            # Generate another name
+            return generate_character_name(book_slug, book_data)
+        
+    except ValueError:
+        print(f"{Fore.RED}Please enter a number.{Style.RESET_ALL}")
+        time.sleep(1)
+    
+    input("Press Enter to continue...")
+
+
+def process_character_tags(content, characters):
+    """Replace character tags with their names in the content"""
+    if not characters:
+        return content
+    
+    # Create a pattern that matches character tags in the format <tag>
+    for tag, char_info in characters.items():
+        tag_pattern = f"<{tag}>"
+        content = content.replace(tag_pattern, char_info["name"])
+    
+    return content
 
 
 def main():

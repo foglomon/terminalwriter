@@ -79,25 +79,53 @@ You will then enter the writing interface.
 In the writing interface, you can:
 
 - Type text directly, with support for Markdown formatting
-- Use special commands:
-  - `new page` - Create a new page
-  - `previous page` - Go back to the previous page
-  - `goto <line number>` - Go to a specific line to edit it
-  - `update font = <name>` - Change the font (e.g., `update font = Helvetica`)
-  - `update font-size = <size>` - Change the font size (e.g., `update font-size = 14`)
-  - `update book-dimensions = <widthxheight>` - Change book dimensions (e.g., `update book-dimensions = 6x9`)
-  - `exit` - Return to main menu
+- Use special commands, which are organized into the following categories:
+
+#### Line Editing Commands
+- `edit <number>` - Edit a specific line by its line number.
+- `new line` - Insert a blank line at the end of your text.
+- `add line <number>` - Insert a blank line before the specified line number.
+- `delete line <number>` - Delete the specified line and shift remaining lines up.
+
+#### Navigation Commands
+- `new page` - Create a new page and navigate to it.
+- `previous page` - Go to the previous page.
+- `next page` - Go to the next page.
+- `go to page = <num>` - Jump to a specific page number.
+
+#### Formatting Commands
+- `update font = <name>` - Change the font (e.g., `update font = Times-Roman`).
+- `update font-size = <size>` - Change the font size (e.g., `update font-size = 12`).
+- `update book-dimensions = <wxh>` - Change book dimensions (e.g., `update book-dimensions = 6x9`).
+
+#### Content Editing Commands
+- `clear page` - Clear all content from the current page.
+- `search = <text>` - Search for text across all pages.
+
+#### Book Management Commands
+- `save` - Explicitly save the book.
+- `rename book` - Change the title of the book.
+- `update description` - Change the book description.
+- `characters` - Manage characters in your book, including a built-in character name generator
+
+#### System Commands
+- `help` - Show the help screen.
+- `status` - Show book statistics and information.
+- `exit` - Return to the main menu.
 
 ### Markdown Support
 
 You can use standard Markdown syntax:
 
-- Bold: `**text**`
-- Italic: `*text*`
-- Headings: `# Heading 1`, `## Heading 2`, etc.
+- Bold: `*bold text*` or `**bold text**`
+- Italic: `_italic text_`
+- Headings: `# Heading 1`, `## Heading 2`, `### Heading 3`
 - Images: `![alt text](file:///path/to/image.jpg)`
+- Links: `[link text](https://example.com)`
+- Inline font size: `!font-size(24)[text]`
+- Character names: `<character>` (replaced with the character's name)
 
-### Exporting Books
+## Exporting Books
 
 Select "Export Book" from the main menu, choose the book to export, and select your desired format:
 
