@@ -28,7 +28,7 @@ TerminalWriter is a self-contained, terminal-only Python application for authori
 Run this command in PowerShell to install TerminalWriter:
 
 ```powershell
-mkdir -Force "$env:USERPROFILE\terminalwriter" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/foglomon/terminalwriter/main/terminalwriter.py" -OutFile "$env:USERPROFILE\terminalwriter\terminalwriter.py"; pip install colorama markdown reportlab ebooklib beautifulsoup4 Pillow pyautogui; Set-Content -Path "$env:USERPROFILE\terminalwriter.bat" -Value "@echo off`r`npython `"$env:USERPROFILE\terminalwriter\terminalwriter.py`" %*"; Set-Content -Path "$env:USERPROFILE\tw.bat" -Value "@echo off`r`npython `"$env:USERPROFILE\terminalwriter\terminalwriter.py`" %*"; $env:PATH += ";$env:USERPROFILE"; [Environment]::SetEnvironmentVariable("PATH", "$($env:PATH)", "User"); Write-Output "TerminalWriter installed! Run 'terminalwriter' or 'tw' from any terminal."
+mkdir -Force "$env:USERPROFILE\terminalwriter" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/foglomon/terminalwriter/main/terminalwriter.py" -OutFile "$env:USERPROFILE\terminalwriter\terminalwriter.py"; pip install colorama markdown reportlab ebooklib beautifulsoup4 Pillow pyautogui names; Set-Content -Path "$env:USERPROFILE\terminalwriter.bat" -Value "@echo off`r`npython `"$env:USERPROFILE\terminalwriter\terminalwriter.py`" %*"; Set-Content -Path "$env:USERPROFILE\tw.bat" -Value "@echo off`r`npython `"$env:USERPROFILE\terminalwriter\terminalwriter.py`" %*"; $env:PATH += ";$env:USERPROFILE"; [Environment]::SetEnvironmentVariable("PATH", "$($env:PATH)", "User"); Write-Output "TerminalWriter installed! Run 'terminalwriter' or 'tw' from any terminal."
 ```
 
 ### Linux (Bash)
@@ -82,33 +82,39 @@ In the writing interface, you can:
 - Use special commands, which are organized into the following categories:
 
 #### Line Editing Commands
+
 - `edit <number>` - Edit a specific line by its line number.
 - `new line` - Insert a blank line at the end of your text.
 - `add line <number>` - Insert a blank line before the specified line number.
 - `delete line <number>` - Delete the specified line and shift remaining lines up.
 
 #### Navigation Commands
+
 - `new page` - Create a new page and navigate to it.
 - `previous page` - Go to the previous page.
 - `next page` - Go to the next page.
 - `go to page = <num>` - Jump to a specific page number.
 
 #### Formatting Commands
+
 - `update font = <name>` - Change the font (e.g., `update font = Times-Roman`).
 - `update font-size = <size>` - Change the font size (e.g., `update font-size = 12`).
 - `update book-dimensions = <wxh>` - Change book dimensions (e.g., `update book-dimensions = 6x9`).
 
 #### Content Editing Commands
+
 - `clear page` - Clear all content from the current page.
 - `search = <text>` - Search for text across all pages.
 
 #### Book Management Commands
+
 - `save` - Explicitly save the book.
 - `rename book` - Change the title of the book.
 - `update description` - Change the book description.
 - `characters` - Manage characters in your book, including a built-in character name generator
 
 #### System Commands
+
 - `help` - Show the help screen.
 - `status` - Show book statistics and information.
 - `exit` - Return to the main menu.
