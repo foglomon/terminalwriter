@@ -308,7 +308,7 @@ def writing_interface(book_slug):
                 
                 print(line_display)
         else:
-            print(f"{Fore.YELLOW}This page is empty. Type your content above.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}This page is empty. Type your content below.{Style.RESET_ALL}")
         
         print("-" * 50)
         
